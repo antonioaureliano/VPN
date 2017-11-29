@@ -45,7 +45,7 @@ int main ()
   SSLeay_add_ssl_algorithms();
   meth = SSLv23_client_method();
   SSL_load_error_strings();
-  ctx = SSL_CTX_new (meth);                        CHK_NULL(ctx);
+  ctx = SSL_CTX_new(meth);                        CHK_NULL(ctx);
 
   CHK_SSL(err);
 
@@ -118,9 +118,9 @@ int main ()
   /* --------------------------------------------------- */
   /* DATA EXCHANGE - Send a message and receive a reply. */
 
-  err = SSL_write (ssl, "Hello World!", strlen("Hello World!"));  CHK_SSL(err);
+  err = SSL_write(ssl, "Hello World!", strlen("Hello World!"));  CHK_SSL(err);
   
-  err = SSL_read (ssl, buf, sizeof(buf) - 1);                     CHK_SSL(err);
+  err = SSL_read(ssl, buf, sizeof(buf) - 1);                     CHK_SSL(err);
   buf[err] = '\0';
   printf ("Got %d chars:'%s'\n", err, buf);
   SSL_shutdown (ssl);  /* send SSL/TLS close_notify */

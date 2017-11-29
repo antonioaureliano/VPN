@@ -83,7 +83,7 @@ int main ()
   /* ----------------------------------------------- */
   /* Prepare TCP socket for receiving connections */
 
-  listen_sd = socket (AF_INET, SOCK_STREAM, 0);   CHK_ERR(listen_sd, "socket");
+  listen_sd = socket(AF_INET, SOCK_STREAM, 0);   CHK_ERR(listen_sd, "socket");
   
   memset (&sa_serv, '\0', sizeof(sa_serv));
   sa_serv.sin_family      = AF_INET;

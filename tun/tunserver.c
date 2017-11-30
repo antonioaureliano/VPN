@@ -18,6 +18,7 @@
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
 #define PORT 55555
+#define PORT_UDP 12345
 
 /* some common lengths */
 #define IP_HDR_LEN 20
@@ -64,11 +65,7 @@ int tun_alloc(char *dev, int flags) {
 	return fd;
 }
 
-/**************************************************************************
- * cread: read routine that checks for errors and exits if an error is    *
- *        returned.                                                       *
- **************************************************************************/
-int cread(int fd, char *buf, int n){
+int cread_secure(SSL *fd, char *buf, int n){
   
 	int nread;
 
@@ -80,6 +77,50 @@ int cread(int fd, char *buf, int n){
 	return nread;
 }
 
+int cwrite_secure(SSL *fd, char *buf, int n){
+  
+	int nwrite;
+
+	if((nwrite = SSL_write(fd, buf, n))<0){
+		ERR_print_errors_fp(stderr);
+		perror("Writing data");
+		exit(2);
+	}
+
+	return nwrite;
+}
+
+int read_n_secure(SSL *fd, char *buf, int n) {
+
+	int nread, left = n;
+
+	while(left > 0) {
+		if ((nread = cread_secure(fd, buf, left))==0){
+			return 0 ;      
+		}else {
+			left -= nread;
+			buf += nread;
+		}
+	}
+	
+	return n;  
+}
+
+/**************************************************************************
+ * cread: read routine that checks for errors and exits if an error is    *
+ *        returned.                                                       *
+ **************************************************************************/
+int cread(int fd, char *buf, int n){
+  
+	int nread;
+
+	if((nread=read(fd, buf, n))<0){
+		perror("Reading data");
+		exit(1);
+	}
+	return nread;
+}
+
 /**************************************************************************
  * cwrite: write routine that checks for errors and exits if an error is  *
  *         returned.                                                      *
@@ -88,11 +129,10 @@ int cwrite(int fd, char *buf, int n){
   
 	int nwrite;
 
-	if((nwrite = SSL_write(sfd, buf, n))<0){
-		ERR_print_errors_fp(stderr);
-		exit(2);
+	if((nwrite=write(fd, buf, n))<0){
+		perror("Writing data");
+		exit(1);
 	}
-	
 	return nwrite;
 }
 
@@ -145,6 +185,7 @@ int main(int argc, char *argv[]) {
 	int tap_fd;
 	int net_fd;
 	int sock_fd;
+	int sock_UDP;
 	int maxfd;
 	int flags = IFF_TUN;
 	int header_len = ETH_HDR_LEN;
@@ -158,11 +199,14 @@ int main(int argc, char *argv[]) {
 	unsigned long int tap2net = 0;
 	unsigned long int net2tap = 0;
 	struct sockaddr_in sa_serv;
+	struct sockaddr_in sa_serv_UDP;
 	struct sockaddr_in sa_cli;
 	socklen_t remotelen;
 	SSL_CTX *ctx;
 	SSL *ssl;
+	SSL *ssl_UDP;
 	X509 *client_cert;
+	BIO *bio_UDP;
 	const SSL_METHOD *meth;
 
 	if(argc > 2){
@@ -188,6 +232,7 @@ int main(int argc, char *argv[]) {
 	if((ctx) == NULL) {
 		exit (1);
 	}
+	
 	if((err)==-1) { 
 		ERR_print_errors_fp(stderr); 
 		exit(2); 
@@ -198,16 +243,19 @@ int main(int argc, char *argv[]) {
 
 	if (SSL_CTX_use_certificate_file(ctx, CERTF, SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stderr);
+		SSL_CTX_free(ctx);
 		exit(-2);
 	}
 
 	if (SSL_CTX_use_PrivateKey_file(ctx, KEYF, SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stderr);
+		SSL_CTX_free(ctx);
 		exit(-3);
 	}
 
 	if (!SSL_CTX_check_private_key(ctx)) {
 		printf("Private key does not match the certificate public keyn");
+		SSL_CTX_free(ctx);
 		exit(-4);
 	}
 	
@@ -221,7 +269,7 @@ int main(int argc, char *argv[]) {
       exit(1);
     }
 
-    memset (&sa_serv, '\0', sizeof(sa_serv));
+    memset(&sa_serv, '\0', sizeof(sa_serv));
 	sa_serv.sin_family      = AF_INET;
 	sa_serv.sin_addr.s_addr = INADDR_ANY;
 	sa_serv.sin_port        = htons(PORT);
@@ -233,7 +281,7 @@ int main(int argc, char *argv[]) {
 		exit(1); 
 	}
 	
-	err = listen (listen_sd, 5);
+	err = listen(listen_sd, 5);
 
     if((err) == -1) { 
 		perror("listen()"); 
@@ -241,7 +289,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	client_len = sizeof(sa_cli);
-	net_fd = accept(listen_sd, (struct sockaddr*) &sa_cli, &client_len);
+	sock_fd = accept(listen_sd, (struct sockaddr*) &sa_cli, &client_len);
 	if((net_fd) == -1) { 
 		perror("accept()"); 
 		exit(1); 
@@ -258,41 +306,45 @@ int main(int argc, char *argv[]) {
 	if ((ssl) == NULL) { exit (1); }
 	
 	SSL_set_fd(ssl, sock_fd);
-	err = SSL_connect (ssl);
+	err = SSL_connect(ssl);
 	
 	if ((err)==-1) { 
 		ERR_print_errors_fp(stderr); 
 		exit(2); 
 	}
 	
+	/*if(SSL_get_verify_result(ssl) != X509_V_OK) {
+		/* Handle the failed verification */
+	}*/
+	
 	/* Get the cipher - opt */
 
-	printf("SSL connection using %s\n", SSL_get_cipher (ssl));
+	printf("SSL connection using %s\n", SSL_get_cipher(ssl));
 
 	/* Get server's certificate (note: beware of dynamic allocation) - opt */
 
 	server_cert = SSL_get_peer_certificate(ssl); 
 	      
-	if ((server_cert) == NULL) {
-		exit (1);
+	if((server_cert) == NULL) {
+		exit(1);
 	}
 	
 	printf("Server certificate:\n");
 
 	str = X509_NAME_oneline(X509_get_subject_name(client_cert),0,0);
 	
-	if ((str) == NULL) {
-		exit (1);
+	if((str) == NULL) {
+		exit(1);
 	}
 	
 	printf("\t subject: %s\n", str);
 	
-	OPENSSL_free (str);
+	OPENSSL_free(str);
 
 	str = X509_NAME_oneline(X509_get_issuer_name(client_cert),0,0);
 	
-	if ((str) == NULL) {
-		exit (1);
+	if((str) == NULL) {
+		exit(1);
 	}
 	
 	printf("\t issuer: %s\n", str);
@@ -300,8 +352,29 @@ int main(int argc, char *argv[]) {
 	OPENSSL_free(str);
 	X509_free(server_cert);
 	
-    net_fd = ssl; // TEST IF THIS WORKS
+	/* starting and binding UDP socket */
+	
+	if ((sock_UDP = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+		diep("socket UDP");
+	}
+	
+	memset(&sa_serv_UDP, '\0', sizeof(sa_serv_UDP));
+	sa_serv_UDP.sin_family      = AF_INET;
+	sa_serv_UDP.sin_addr.s_addr = sa_serv.sin_addr.s_addr;
+	sa_serv_UDP.sin_port        = htons(PORT_UDP);
+	
+	if(bind(sock_UDP, &sa_serv_UDP, sizeof(sa_serv_UDP)) == -1) {
+		diep("bind UDP");
+	}
+	
+	ssl_UDP = SSL_new(ctx);
+	SSL_set_fd(ssl, sock_UDP);
+	//bio_UDP = BIO_new_dgram(sock_UDP, BIO_NOCLOSE);
+	//SSL_set_bio(ssl_UDP, bio_UDP, bio_UDP);
+	
+    //net_fd = ssl; // TEST IF THIS WORKS
     //net_fd = sock_fd;
+    net_fd = sock_UDP;
     
     /* use select() to handle two descriptors at once */
 	maxfd = (tap_fd > net_fd)?tap_fd:net_fd;
@@ -335,8 +408,8 @@ int main(int argc, char *argv[]) {
 
 			/* write length + packet */
 			plength = htons(nread);
-			nwrite = cwrite(net_fd, (char *)&plength, sizeof(plength));
-			nwrite = cwrite(net_fd, buffer, nread);
+			nwrite = cwrite_secure(ssl_UDP, (char *)&plength, sizeof(plength));
+			nwrite = cwrite_secure(ssl_UDP, buffer, nread);
 
 			do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
 		}
@@ -346,7 +419,7 @@ int main(int argc, char *argv[]) {
 			* We need to read the length first, and then the packet */
 
 			/* Read length */      
-			nread = read_n(net_fd, (char *)&plength, sizeof(plength));
+			nread = read_n_secure(ssl_UDP, (char *)&plength, sizeof(plength));
 			if(nread == 0) {
 				/* ctrl-c at the other end */
 				break;
@@ -355,7 +428,7 @@ int main(int argc, char *argv[]) {
 			net2tap++;
 
 			/* read packet */
-			nread = read_n(net_fd, buffer, ntohs(plength));
+			nread = read_n_secure(ssl_UDP, buffer, ntohs(plength));
 			do_debug("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
 
 			/* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
@@ -367,7 +440,9 @@ int main(int argc, char *argv[]) {
 	/* Clean up */
 	SSL_shutdown(ssl);
 	close(sock_fd);
+	close(sock_UDP);
 	SSL_free(ssl);
+	SSL_free(ssl_UDP);
 	SSL_CTX_free(ctx);
 	
 	return(0);

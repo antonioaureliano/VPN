@@ -14,6 +14,16 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <memory.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+
+#include <openssl/crypto.h>
+#include <openssl/x509.h>
+#include <openssl/pem.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
@@ -61,20 +71,15 @@ int tun_alloc(char *dev, int flags) {
 	return fd;
 }
 
-/**************************************************************************
- * cread: read routine that checks for errors and exits if an error is    *
- *        returned.                                                       *
- **************************************************************************/
 int cread(int fd, char *buf, int n){
   
-	int nread;
+  int nread;
 
-	if((nread = SSL_read(fd, buf, n - 1))<0){ // why n - 1?
-		perror("Reading data");
-		exit(1);
-	}
-	buf[nread] = '\0';
-	return nread;
+  if((nread=read(fd, buf, n))<0){
+    perror("Reading data");
+    exit(1);
+  }
+  return nread;
 }
 
 /**************************************************************************
@@ -83,14 +88,13 @@ int cread(int fd, char *buf, int n){
  **************************************************************************/
 int cwrite(int fd, char *buf, int n){
   
-	int nwrite;
+  int nwrite;
 
-	if((nwrite = SSL_write(sfd, buf, n))<0){
-		ERR_print_errors_fp(stderr);
-		exit(2);
-	}
-	
-	return nwrite;
+  if((nwrite=write(fd, buf, n))<0){
+    perror("Writing data");
+    exit(1);
+  }
+  return nwrite;
 }
 
 /**************************************************************************
@@ -113,30 +117,6 @@ int read_n(int fd, char *buf, int n) {
 	return n;  
 }
 
-/**************************************************************************
- * do_debug: prints debugging stuff (doh!)                                *
- **************************************************************************/
-void do_debug(char *msg, ...){
-  
-	va_list argp;
-  
-	va_start(argp, msg);
-	vfprintf(stderr, msg, argp);
-	va_end(argp);
-}
-
-/**************************************************************************
- * my_err: prints custom error messages on stderr.                        *
- **************************************************************************/
-void my_err(char *msg, ...) {
-
-	va_list argp;
-
-	va_start(argp, msg);
-	vfprintf(stderr, msg, argp);
-	va_end(argp);
-}
-
 int main(int argc, char *argv[]) {
 
 	int tap_fd;
@@ -148,6 +128,7 @@ int main(int argc, char *argv[]) {
 	uint16_t nread;
 	uint16_t nwrite;
 	uint16_t plength;
+	char *str;
 	char if_name[IFNAMSIZ] = "";
 	char remote_ip[16] = "";
 	char buffer[BUFSIZE];
@@ -161,27 +142,28 @@ int main(int argc, char *argv[]) {
 	const SSL_METHOD *meth;
 
 	if(argc > 3){
-    	my_err("Too many options!\n");
+    	perror("Too many options!");
+    	exit(1);
     }
     
     strcpy(if_name, argv[1]);        
     strcpy(remote_ip, argv[2]);
     
     if(*if_name == '\0'){
-		my_err("Must specify interface name!\n");
+		perror("Must specify interface name!");
 		exit(1);
 	}else if(*remote_ip == '\0'){
-		my_err("Must specify server address!\n");
+		perror("Must specify server address!");
 		exit(1);
 	} 
      
 	/* initialize tun/tap interface */
 	if ((tap_fd = tun_alloc(if_name, flags | IFF_NO_PI)) < 0) {
-		my_err("Error connecting to tun/tap interface %s!\n", if_name);
+		printf("Error connecting to tun/tap interface %s!\n", if_name);
 		exit(1);
 	}
 
-	do_debug("Successfully connected to interface %s\n", if_name);   
+	printf("Successfully connected to interface %s\n", if_name);   
 	
 	SSLeay_add_ssl_algorithms();
 	meth = SSLv23_client_method();
@@ -224,7 +206,7 @@ int main(int argc, char *argv[]) {
     memset(&remote, '\0', sizeof(remote));
     remote.sin_family 		= AF_INET;
     remote.sin_addr.s_addr 	= inet_addr(remote_ip);
-    remote.sin_port 		= htons(port);
+    remote.sin_port 		= htons(PORT);
 
     /* connection request */
     if(err = connect(net_fd, (struct sockaddr*) &remote, sizeof(remote)) < 0){
@@ -232,7 +214,7 @@ int main(int argc, char *argv[]) {
 		exit(1);
     }
     
-    do_debug("CLIENT: Connected to server %s\n", inet_ntoa(remote.sin_addr));
+    printf("CLIENT: Connected to server %s\n", inet_ntoa(remote.sin_addr));
     
     /* Now we have TCP conncetion. Start SSL negotiation. */
     
@@ -281,7 +263,7 @@ int main(int argc, char *argv[]) {
 	
 	printf("\t issuer: %s\n", str);
 	
-	OPENSSL_free (str);
+	OPENSSL_free(str);
 	
 	/* We could do all sorts of certificate verification stuff here before
      deallocating the certificate. */
@@ -317,7 +299,7 @@ int main(int argc, char *argv[]) {
 			nread = cread(tap_fd, buffer, BUFSIZE);
 
 			tap2net++;
-			do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
+			printf("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 
 			err = SSL_write (ssl, buffer, sizeof(buffer));
 			nwrite = err;
@@ -327,7 +309,7 @@ int main(int argc, char *argv[]) {
 				exit(2); 
 			}
 
-			do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
+			printf("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
 		}
 
 		if(FD_ISSET(net_fd, &rd_set)){
@@ -342,20 +324,20 @@ int main(int argc, char *argv[]) {
 				break;
 			}
 				
-			nread = err
+			nread = err;
 			net2tap++;
 			
-			do_debug("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
+			printf("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
 
 			/* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
 			nwrite = cwrite(tap_fd, buffer, nread);
-			do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
+			printf("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
 		}
 	}
 	
 	/* Clean up */
 	//SSL_shutdown(ssl);
-	close(sock_fd);
+	close(net_fd);
 	SSL_free(ssl);
 	SSL_CTX_free(ctx);
 	

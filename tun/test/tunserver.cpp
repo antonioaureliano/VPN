@@ -14,6 +14,16 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <memory.h>
+#include <netinet/in.h>
+#include <netdb.h>
+
+#include <openssl/rsa.h>       /* SSLeay stuff */
+#include <openssl/crypto.h>
+#include <openssl/x509.h>
+#include <openssl/pem.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
@@ -114,34 +124,11 @@ int read_n(int fd, char *buf, int n) {
 	return n;  
 }
 
-/**************************************************************************
- * do_debug: prints debugging stuff (doh!)                                *
- **************************************************************************/
-void do_debug(char *msg, ...){
-  
-	va_list argp;
-  
-	va_start(argp, msg);
-	vfprintf(stderr, msg, argp);
-	va_end(argp);
-}
-
-/**************************************************************************
- * my_err: prints custom error messages on stderr.                        *
- **************************************************************************/
-void my_err(char *msg, ...) {
-
-	va_list argp;
-
-	va_start(argp, msg);
-	vfprintf(stderr, msg, argp);
-	va_end(argp);
-}
-
 int main(int argc, char *argv[]) {
 
 	int tap_fd;
 	int net_fd;
+	int listen_sd;
 	int maxfd;
 	int flags = IFF_TUN;
 	int header_len = ETH_HDR_LEN;
@@ -158,7 +145,7 @@ int main(int argc, char *argv[]) {
 	unsigned long int net2tap = 0;
 	struct sockaddr_in sa_serv;
 	struct sockaddr_in sa_cli;
-	size_t remotelen;
+	socklen_t client_len;
 	SSL_CTX *ctx;
 	SSL *ssl;
 	SSL *ssl_tap;
@@ -166,24 +153,24 @@ int main(int argc, char *argv[]) {
 	const SSL_METHOD *meth;
 
 	if(argc > 2){
-    	my_err("Too many options!\n");
+    	perror("Too many options!\n");
     }
     
     strcpy(if_name, argv[1]);
     printf("Interface: %s\n");
     
 	if(*if_name == '\0'){
-		my_err("Must specify interface name!\n");
+		perror("Must specify interface name!\n");
 		exit(1);
 	}        
      
 	/* initialize tun/tap interface */
 	if ((tap_fd = tun_alloc(if_name, flags | IFF_NO_PI)) < 0) {
-		my_err("Error connecting to tun/tap interface %s!\n", if_name);
+		printf("Error connecting to tun/tap interface %s!\n", if_name);
 		exit(1);
 	}
 
-	do_debug("Successfully connected to interface %s\n", if_name);   
+	printf("Successfully connected to interface %s\n", if_name);   
 	
 	/* SSL preliminaries. We keep the certificate and key with the context. */
 	
@@ -252,7 +239,7 @@ int main(int argc, char *argv[]) {
 	
 	close (listen_sd);
     
-    do_debug("SERVER: Client connected from %lx on port %x\n", sa_cli.sin_addr.s_addr, sa_cli.sin_port);
+    printf("SERVER: Client connected from %lx on port %x\n", sa_cli.sin_addr.s_addr, sa_cli.sin_port);
     
     /* Now we have TCP conncetion. Start SSL negotiation. */
     
@@ -302,11 +289,8 @@ int main(int argc, char *argv[]) {
 		X509_free(client_cert);
 	} 
 	else {
-		printf ("Client does not have certificate.\n");
-	}
-
-	err = SSL_read(ssl, buf, sizeof(buf) - 1);
-	buf[err] = '\0'; 
+		printf("Client does not have certificate.\n");
+	} 
 	
 	/* use select() to handle two descriptors at once */
 	maxfd = (tap_fd > net_fd)?tap_fd:net_fd;
@@ -335,7 +319,7 @@ int main(int argc, char *argv[]) {
 			nread = cread(tap_fd, buffer, BUFSIZE);
 
 			tap2net++;
-			do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
+			printf("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 
 			err = SSL_write (ssl, buffer, sizeof(buffer));
 			nwrite = err;
@@ -345,7 +329,7 @@ int main(int argc, char *argv[]) {
 				exit(2); 
 			}
 
-			do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
+			printf("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
 		}
 
 		if(FD_ISSET(net_fd, &rd_set)){
@@ -360,21 +344,21 @@ int main(int argc, char *argv[]) {
 				break;
 			}
 				
-			nread = err
+			nread = err;
 			net2tap++;
 			
-			do_debug("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
+			printf("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
 
 			/* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
 			nwrite = cwrite(tap_fd, buffer, nread);
-			do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
+			printf("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
 		}
 	}
 
 	/* Clean up */
 	
 	//SSL_shutdown(ssl);
-	close(sock_fd);
+	close(net_fd);
 	SSL_free(ssl);
 	SSL_CTX_free(ctx);
 	

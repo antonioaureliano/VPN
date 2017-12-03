@@ -101,40 +101,6 @@ int cread2(int fd, char *buf, int n, struct sockaddr_in *si, socklen_t *slen){
 }
 
 /**************************************************************************
- * cwrite: write routine that checks for errors and exits if an error is  *
- *         returned.                                                      *
- **************************************************************************/
-int cwrite2(int fd, char *buf, int n, struct sockaddr_in *si, socklen_t slen){
-  
-  int nwrite;
-
-  if((nwrite = sendto(fd, buf, n, 0, (struct sockaddr*)si, slen))<0){
-    perror("Writing data");
-    exit(1);
-  }
-  return nwrite;
-}
-
-/**************************************************************************
- * read_n: ensures we read exactly n bytes, and puts those into "buf".    *
- *         (unless EOF, of course)                                        *
- **************************************************************************/
-int read_n2(int fd, char *buf, int n, struct sockaddr_in *si, socklen_t *slen) {
-
-  int nread, left = n;
-
-  while(left > 0) {
-    if ((nread = cread2(fd, buf, left, si, slen))==0){
-      return 0 ;      
-    }else {
-      left -= nread;
-      buf += nread;
-    }
-  }
-  return n;  
-}
-
-/**************************************************************************
  * cread: read routine that checks for errors and exits if an error is    *
  *        returned.                                                       *
  **************************************************************************/
@@ -396,20 +362,18 @@ int main(int argc, char *argv[]) {
       tap2net++;
       do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 
-      /* write length + packet */
-      plength = htons(nread);
-      nwrite = cwrite2(net_fd, (char *)&plength, sizeof(plength), &remote, remotelen);
-      nwrite = cwrite2(net_fd, buffer, nread, &remote, remotelen);
+      sendto(net_fd, buffer, nread, 0, (struct sockaddr*) &remote, remotelen);
       
       do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
     }
 
     if(FD_ISSET(net_fd, &rd_set)){
-      /* data from the network: read it, and write it to the tun/tap interface. 
-       * We need to read the length first, and then the packet */
-
-      /* Read length */      
-      nread = read_n2(net_fd, (char *)&plength, sizeof(plength), &remote, &remotelen);
+      /* data from the network: read it, and write it to the tun/tap interface */
+     
+      if((nread = recvfrom(net_fd, buffer, BUFSIZE, 0, (struct sockaddr*)&remote, &remotelen))<0){
+		perror("Receiving data");
+		exit(1);
+	  }
       if(nread == 0) {
         /* ctrl-c at the other end */
         break;
@@ -418,7 +382,7 @@ int main(int argc, char *argv[]) {
       net2tap++;
 
       /* read packet */
-      nread = read_n2(net_fd, buffer, ntohs(plength), &remote, &remotelen);
+      //nread = read_n2(net_fd, buffer, ntohs(plength), &remote, &remotelen);
       do_debug("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
 
       /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 

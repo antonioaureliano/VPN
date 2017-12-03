@@ -26,7 +26,7 @@
 #include <openssl/err.h>
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
-#define BUFSIZE 4096   
+#define BUFSIZE 65536   
 #define PORT 1111
 
 /* some common lengths */

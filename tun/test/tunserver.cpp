@@ -354,7 +354,7 @@ int main(int argc, char *argv[]) {
 	
 	if ((ssl) == NULL) { exit (1); }
 	
-	SSL_set_fd(ssl, net_fd);
+	SSL_set_fd(ssl, sock_tcp);
 	err = SSL_accept(ssl);
 	
 	if ((err)==-1) { 

@@ -321,7 +321,7 @@ int main(int argc, char *argv[]) {
 			tap2net++;
 			printf("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 
-			err = SSL_write (ssl, buffer, sizeof(buffer));
+			err = SSL_write (ssl, buffer, (sizeof(buffer) - 1));
 			nwrite = err;
 			
 			if ((err)==-1) { 

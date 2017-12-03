@@ -301,7 +301,7 @@ int main(int argc, char *argv[]) {
 			tap2net++;
 			printf("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 
-			err = SSL_write (ssl, buffer, sizeof(buffer));
+			err = SSL_write (ssl, buffer, (sizeof(buffer) - 1));
 			nwrite = err;
 			
 			if ((err)==-1) { 
@@ -316,7 +316,7 @@ int main(int argc, char *argv[]) {
 			/* data from the network: read it, and write it to the tun/tap interface. 
 			* We need to read the length first, and then the packet */
 
-			err = SSL_read(ssl, buffer, sizeof(buffer) - 1);
+			err = SSL_read(ssl, buffer, (sizeof(buffer) - 1));
 			buffer[err] = '\0';
 			
 			if(err == 0) {
@@ -336,7 +336,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	/* Clean up */
-	//SSL_shutdown(ssl);
+	SSL_shutdown(ssl);
 	close(net_fd);
 	SSL_free(ssl);
 	SSL_CTX_free(ctx);

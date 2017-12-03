@@ -79,7 +79,7 @@ int tun_alloc(char *dev, int flags) {
  * cread: read routine that checks for errors and exits if an error is    *
  *        returned.                                                       *
  **************************************************************************/
-int cread(int fd, char *buf, int n){
+int cread(int fd, unsigned char *buf, int n){
   
 	int nread;
 
@@ -94,7 +94,7 @@ int cread(int fd, char *buf, int n){
  * cwrite: write routine that checks for errors and exits if an error is  *
  *         returned.                                                      *
  **************************************************************************/
- int cwrite(int fd, char *buf, int n){
+ int cwrite(int fd, unsigned char *buf, int n){
   
   int nwrite;
 
@@ -105,11 +105,11 @@ int cread(int fd, char *buf, int n){
   return nwrite;
 }
 
-int cwrite_udp(int fd, char *buf, int n, struct sockaddr_in *remote, int remote_len){
+int cwrite_udp(int fd, unsigned char *buf, int n, struct sockaddr *remote, int remote_len){
   
 	int nwrite;
 
-	if((nwrite = sendto(fd, buf, n, 0, remote, remote_len))<0){
+	if((nwrite = sendto(fd, buf, n, 0, (sockaddr*)remote, remote_len))<0){
 		perror("Writing data");
 		exit(1);
 	}
@@ -120,7 +120,7 @@ int cwrite_udp(int fd, char *buf, int n, struct sockaddr_in *remote, int remote_
  * read_n: ensures we read exactly n bytes, and puts those into "buf".    *
  *         (unless EOF, of course)                                        *
  **************************************************************************/
-int read_n(int fd, char *buf, int n) {
+int read_n(int fd, unsigned char *buf, int n) {
 
 	int nread, left = n;
 
@@ -134,6 +134,13 @@ int read_n(int fd, char *buf, int n) {
 	}
 	
 	return n;  
+}
+
+void handleErrors(void) {
+
+  ERR_print_errors_fp(stderr);
+  abort();
+  
 }
 
 int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *key, unsigned char *iv, unsigned char *ciphertext) {
@@ -208,12 +215,6 @@ int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *key, u
 	return plaintext_len;
 }
 
-void handleErrors(void) {
-
-  ERR_print_errors_fp(stderr);
-  abort();
-  
-}
 
 int main(int argc, char *argv[]) {
 
@@ -440,17 +441,17 @@ int main(int argc, char *argv[]) {
 			nread = cread(tap_fd, decrypted, BUFSIZE);
 
 			tap2net++;
-			do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
+			printf("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 			
 			/* Encrypt the plaintext */
-			ciphertext_len = encrypt(decrypted, strlen ((char *)decrypted), key, iv, encrypted);
+			ciphertext_len = encrypt(decrypted, strlen ((char*)decrypted), key, iv, encrypted);
 
 			/* write length + packet */
 			plength = htons(ciphertext_len);
-			nwrite = cwrite_udp(net_fd, (char *)&plength, sizeof(plength), (struct sockaddr*)&sa_cli, client_len);
-			nwrite = cwrite_udp(net_fd, encrypted, nread, (struct sockaddr*)&sa_cli, client_len);
+			nwrite = cwrite_udp(net_fd, (unsigned char*)&plength, sizeof(plength), (struct sockaddr*) &sa_cli, sizeof(sa_cli));
+			nwrite = cwrite_udp(net_fd, encrypted, nread, (struct sockaddr*)&sa_cli, sizeof(sa_cli));
 
-			do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
+			printf("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
 		}
 
 		if(FD_ISSET(net_fd, &rd_set)){
@@ -458,7 +459,7 @@ int main(int argc, char *argv[]) {
 			* We need to read the length first, and then the packet */
 
 			/* Read length */      
-			nread = read_n(net_fd, (char *)&plength, sizeof(plength));
+			nread = read_n(net_fd, (unsigned char*)&plength, sizeof(plength));
 			if(nread == 0) {
 				/* ctrl-c at the other end */
 				break;
@@ -468,7 +469,7 @@ int main(int argc, char *argv[]) {
 
 			/* read packet */
 			nread = read_n(net_fd, encrypted, ntohs(plength));
-			do_debug("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
+			printf("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
 			
 			/* Decrypt the ciphertext */
 			decryptedtext_len = decrypt(encrypted, ciphertext_len, key, iv, decrypted);
@@ -478,7 +479,7 @@ int main(int argc, char *argv[]) {
 
 			/* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
 			nwrite = cwrite(tap_fd, decrypted, nread);
-			do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
+			printf("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
 		}
 	}
 

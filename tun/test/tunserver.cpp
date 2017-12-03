@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
     }
     
     strcpy(if_name, argv[1]);
-    printf("Interface: %s\n");
+    //printf("Interface: %s\n");
     
 	if(*if_name == '\0'){
 		perror("Must specify interface name!\n");
@@ -239,7 +239,7 @@ int main(int argc, char *argv[]) {
 	
 	close (listen_sd);
     
-    printf("SERVER: Client connected from %lx on port %x\n", sa_cli.sin_addr.s_addr, sa_cli.sin_port);
+    printf("SERVER: Client connected from %x on port %x\n", sa_cli.sin_addr.s_addr, sa_cli.sin_port);
     
     /* Now we have TCP conncetion. Start SSL negotiation. */
     

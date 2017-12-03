@@ -27,7 +27,7 @@
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
-#define PORT 55555
+//#define PORT 55555
 #define PORT_UDP 12345
 
 /* some common lengths */
@@ -35,12 +35,12 @@
 #define ETH_HDR_LEN 14
 #define ARP_PKT_LEN 28
 
-/* define HOME to be dir for key and cert files... */
+/* define HOME to be dir for key and cert files...
 #define HOME "./"
-/* Make these what you want for cert & key files */
+Make these what you want for cert & key files
 #define CERTF  HOME "server.crt"
 #define KEYF  HOME  "server.key"
-#define CACERT HOME "ca.crt"
+#define CACERT HOME "ca.crt"*/
 
 /**************************************************************************
  * tun_alloc: allocates or reconnects to a tun/tap device. The caller     *
@@ -259,7 +259,7 @@ int main(int argc, char *argv[]) {
 	/* A 128 bit IV */
  	unsigned char *iv = (unsigned char *)"0123456789012345";
 
-	if(argc > 2){
+	if(argc > 6){
     	perror("Too many options!\n");
     }
     
@@ -292,13 +292,13 @@ int main(int argc, char *argv[]) {
 	}
 	
 	SSL_CTX_set_verify(ctx,SSL_VERIFY_PEER,NULL);
-	SSL_CTX_load_verify_locations(ctx,CACERT,NULL);
+	SSL_CTX_load_verify_locations(ctx,argv[3],NULL);
 
-	if (SSL_CTX_use_certificate_file(ctx, CERTF, SSL_FILETYPE_PEM) <= 0) {
+	if (SSL_CTX_use_certificate_file(ctx, argv[4], SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stderr);
 		exit(3);
 	}
-	if (SSL_CTX_use_PrivateKey_file(ctx, KEYF, SSL_FILETYPE_PEM) <= 0) {
+	if (SSL_CTX_use_PrivateKey_file(ctx, argv[5], SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stderr);
 		exit(4);
 	}
@@ -321,7 +321,7 @@ int main(int argc, char *argv[]) {
     memset(&sa_serv, '\0', sizeof(sa_serv));
 	sa_serv.sin_family      = AF_INET;
 	sa_serv.sin_addr.s_addr = INADDR_ANY;
-	sa_serv.sin_port        = htons(PORT);
+	sa_serv.sin_port        = htons(atoi(argv[2]));
 	
 	err = bind(listen_sd, (struct sockaddr*) &sa_serv, sizeof (sa_serv));
 	

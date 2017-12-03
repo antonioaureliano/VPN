@@ -27,7 +27,7 @@
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
-#define PORT 55555
+//#define PORT 55555
 #define PORT_UDP 12345
 
 /* some common lengths */
@@ -35,9 +35,9 @@
 #define ETH_HDR_LEN 14
 #define ARP_PKT_LEN 28
 
-#define CERTF "client.crt"
+/*#define CERTF "client.crt"
 #define KEYF "client.key"
-#define CACERT "ca.crt"
+#define CACERT "ca.crt"*/
 
 /**************************************************************************
  * tun_alloc: allocates or reconnects to a tun/tap device. The caller     *
@@ -248,7 +248,7 @@ int main(int argc, char *argv[]) {
 	/* A 128 bit IV */
  	unsigned char *iv = (unsigned char *)"0123456789012345";
 
-	if(argc > 3){
+	if(argc > 7){
     	perror("Too many options!");
     	exit(1);
     }
@@ -287,14 +287,14 @@ int main(int argc, char *argv[]) {
 	}
 	
 	SSL_CTX_set_verify(ctx,SSL_VERIFY_PEER,NULL);
-	SSL_CTX_load_verify_locations(ctx,CACERT,NULL);
+	SSL_CTX_load_verify_locations(ctx,argv[4],NULL);
 
-	if (SSL_CTX_use_certificate_file(ctx, CERTF, SSL_FILETYPE_PEM) <= 0) {
+	if (SSL_CTX_use_certificate_file(ctx, argv[5], SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stderr);
 		exit(-2);
 	}
 
-	if (SSL_CTX_use_PrivateKey_file(ctx, KEYF, SSL_FILETYPE_PEM) <= 0) {
+	if (SSL_CTX_use_PrivateKey_file(ctx, argv[6], SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stderr);
 		exit(-3);
 	}
@@ -313,7 +313,7 @@ int main(int argc, char *argv[]) {
     memset(&remote, '\0', sizeof(remote));
     remote.sin_family 		= AF_INET;
     remote.sin_addr.s_addr 	= inet_addr(remote_ip);
-    remote.sin_port 		= htons(PORT);
+    remote.sin_port 		= htons(atoi(argv[3]));
 
     /* connection request */
     if(err = connect(sock_tcp, (struct sockaddr*) &remote, sizeof(remote)) < 0){

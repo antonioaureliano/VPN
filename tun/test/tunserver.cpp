@@ -28,6 +28,7 @@
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
 #define PORT 1111
+#define PORT_UDP 12345
 
 /* some common lengths */
 #define IP_HDR_LEN 20
@@ -93,11 +94,22 @@ int cread(int fd, char *buf, int n){
  * cwrite: write routine that checks for errors and exits if an error is  *
  *         returned.                                                      *
  **************************************************************************/
-int cwrite(int fd, char *buf, int n){
+ int cwrite(int fd, char *buf, int n){
+  
+  int nwrite;
+
+  if((nwrite=write(fd, buf, n))<0){
+    perror("Writing data");
+    exit(1);
+  }
+  return nwrite;
+}
+
+int cwrite_udp(int fd, char *buf, int n, struct sockaddr_in *remote, int remote_len){
   
 	int nwrite;
 
-	if((nwrite=write(fd, buf, n))<0){
+	if((nwrite = sendto(fd, buf, n, 0, remote, remote_len))<0){
 		perror("Writing data");
 		exit(1);
 	}
@@ -124,16 +136,99 @@ int read_n(int fd, char *buf, int n) {
 	return n;  
 }
 
+int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *key, unsigned char *iv, unsigned char *ciphertext) {
+
+	EVP_CIPHER_CTX *ctx;
+
+	int len;
+
+	int ciphertext_len;
+
+	/* Create and initialise the context */
+	if(!(ctx = EVP_CIPHER_CTX_new())) handleErrors();
+
+	/* Initialise the encryption operation. IMPORTANT - ensure you use a key
+	* and IV size appropriate for your cipher
+	* In this example we are using 256 bit AES (i.e. a 256 bit key). The
+	* IV size for *most* modes is the same as the block size. For AES this
+	* is 128 bits */
+	if(1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, key, iv)) handleErrors();
+
+	/* Provide the message to be encrypted, and obtain the encrypted output.
+	* EVP_EncryptUpdate can be called multiple times if necessary
+	*/
+	if(1 != EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len)) handleErrors();
+	ciphertext_len = len;
+
+	/* Finalise the encryption. Further ciphertext bytes may be written at
+	* this stage.
+	*/
+	if(1 != EVP_EncryptFinal_ex(ctx, ciphertext + len, &len)) handleErrors();
+	ciphertext_len += len;
+
+	/* Clean up */
+	EVP_CIPHER_CTX_free(ctx);
+
+	return ciphertext_len;
+}
+
+int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *key, unsigned char *iv, unsigned char *plaintext) {
+
+	EVP_CIPHER_CTX *ctx;
+
+	int len;
+
+	int plaintext_len;
+
+	/* Create and initialise the context */
+	if(!(ctx = EVP_CIPHER_CTX_new())) handleErrors();
+
+	/* Initialise the decryption operation. IMPORTANT - ensure you use a key
+	* and IV size appropriate for your cipher
+	* In this example we are using 256 bit AES (i.e. a 256 bit key). The
+	* IV size for *most* modes is the same as the block size. For AES this
+	* is 128 bits */
+	if(1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, key, iv)) handleErrors();
+
+	/* Provide the message to be decrypted, and obtain the plaintext output.
+	* EVP_DecryptUpdate can be called multiple times if necessary
+	*/
+	if(1 != EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len)) handleErrors();
+	plaintext_len = len;
+
+	/* Finalise the decryption. Further plaintext bytes may be written at
+	* this stage.
+	*/
+	if(1 != EVP_DecryptFinal_ex(ctx, plaintext + len, &len)) handleErrors();
+	plaintext_len += len;
+
+	/* Clean up */
+	EVP_CIPHER_CTX_free(ctx);
+
+	return plaintext_len;
+}
+
+void handleErrors(void) {
+
+  ERR_print_errors_fp(stderr);
+  abort();
+  
+}
+
 int main(int argc, char *argv[]) {
 
 	int tap_fd;
 	int net_fd;
 	int listen_sd;
+	int sock_tcp;
+	int sock_udp;
 	int maxfd;
 	int flags = IFF_TUN;
 	int header_len = ETH_HDR_LEN;
 	int err;
 	int optval = 1;
+	int decryptedtext_len;
+	int ciphertext_len;
 	uint16_t nread;
 	uint16_t nwrite;
 	uint16_t plength;
@@ -141,9 +236,12 @@ int main(int argc, char *argv[]) {
 	char if_name[IFNAMSIZ] = "";
 	char remote_ip[16] = "";
 	char buffer[BUFSIZE];
+	unsigned char encrypted[BUFSIZE];	/* Buffer for the encrypted text */
+	unsigned char decrypted[BUFSIZE];	/* Buffer for the decrypted text */
 	unsigned long int tap2net = 0;
 	unsigned long int net2tap = 0;
 	struct sockaddr_in sa_serv;
+	struct sockaddr_in sa_serv_udp;
 	struct sockaddr_in sa_cli;
 	socklen_t client_len;
 	SSL_CTX *ctx;
@@ -151,6 +249,14 @@ int main(int argc, char *argv[]) {
 	SSL *ssl_tap;
 	X509 *client_cert;
 	const SSL_METHOD *meth;
+	
+	/* Set up the key and iv. Never hard code these in a real application */
+
+	/* A 256 bit key */
+	unsigned char *key = (unsigned char *)"01234567890123456789012345678901";
+	
+	/* A 128 bit IV */
+ 	unsigned char *iv = (unsigned char *)"0123456789012345";
 
 	if(argc > 2){
     	perror("Too many options!\n");
@@ -206,10 +312,10 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 	
-	/*if(setsockopt(listen_sd, SOL_SOCKET, SO_REUSEADDR, (char *)&optval, sizeof(optval)) < 0){
+	if(setsockopt(listen_sd, SOL_SOCKET, SO_REUSEADDR, (char *)&optval, sizeof(optval)) < 0){
       perror("setsockopt()");
       exit(1);
-    }*/
+    }
 
     memset(&sa_serv, '\0', sizeof(sa_serv));
 	sa_serv.sin_family      = AF_INET;
@@ -231,7 +337,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	client_len = sizeof(sa_cli);
-	net_fd = accept(listen_sd, (struct sockaddr*) &sa_cli, &client_len);
+	sock_tcp = accept(listen_sd, (struct sockaddr*) &sa_cli, &client_len);
 	if((net_fd) == -1) { 
 		perror("accept()"); 
 		exit(1); 
@@ -239,7 +345,7 @@ int main(int argc, char *argv[]) {
 	
 	close (listen_sd);
     
-    printf("SERVER: Client connected from %x on port %x\n", sa_cli.sin_addr.s_addr, sa_cli.sin_port);
+    printf("SERVER: Client connected from %s\n", inet_ntoa(sa_cli.sin_addr));
     
     /* Now we have TCP conncetion. Start SSL negotiation. */
     
@@ -292,6 +398,21 @@ int main(int argc, char *argv[]) {
 		printf("Client does not have certificate.\n");
 	} 
 	
+	if ((net_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+		perror("socket() UDP");
+		exit(1);
+	}
+	
+	memset(&sa_serv_udp, '\0', sizeof(sa_serv_udp));
+	sa_serv_udp.sin_family      = AF_INET;
+	sa_serv_udp.sin_addr.s_addr = INADDR_ANY;
+	sa_serv_udp.sin_port        = htons(PORT_UDP);
+	
+	if(bind(net_fd, (struct sockaddr*) &sa_serv_udp, sizeof (sa_serv_udp)) == -1) { 
+		perror("bind() UDP"); 
+		exit(1); 
+	}
+	
 	/* use select() to handle two descriptors at once */
 	maxfd = (tap_fd > net_fd)?tap_fd:net_fd;
 
@@ -316,52 +437,53 @@ int main(int argc, char *argv[]) {
 		if(FD_ISSET(tap_fd, &rd_set)){
 			/* data from tun/tap: just read it and write it to the network */
 
-			nread = cread(tap_fd, buffer, BUFSIZE);
+			nread = cread(tap_fd, decrypted, BUFSIZE);
 
 			tap2net++;
-			printf("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
-
-			err = SSL_write (ssl, buffer, (sizeof(buffer) - 1));
+			do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 			
-			if ((err)==-1) { 
-				ERR_print_errors_fp(stderr); 
-				exit(2); 
-			}
-			nwrite = err;
+			/* Encrypt the plaintext */
+			ciphertext_len = encrypt(decrypted, strlen ((char *)decrypted), key, iv, encrypted);
 
-			printf("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
+			/* write length + packet */
+			plength = htons(ciphertext_len);
+			nwrite = cwrite_udp(net_fd, (char *)&plength, sizeof(plength), (struct sockaddr*)&sa_cli, client_len);
+			nwrite = cwrite_udp(net_fd, encrypted, nread, (struct sockaddr*)&sa_cli, client_len);
+
+			do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
 		}
 
 		if(FD_ISSET(net_fd, &rd_set)){
 			/* data from the network: read it, and write it to the tun/tap interface. 
 			* We need to read the length first, and then the packet */
 
-			err = SSL_read(ssl, buffer, sizeof(buffer) - 1);
-			if ((err)==-1) { 
-				ERR_print_errors_fp(stderr); 
-				exit(2); 
-			}
-			buffer[err] = '\0';
-			
-			if(err == 0) {
+			/* Read length */      
+			nread = read_n(net_fd, (char *)&plength, sizeof(plength));
+			if(nread == 0) {
 				/* ctrl-c at the other end */
 				break;
 			}
-				
-			nread = err;
+
 			net2tap++;
+
+			/* read packet */
+			nread = read_n(net_fd, encrypted, ntohs(plength));
+			do_debug("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
 			
-			printf("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
+			/* Decrypt the ciphertext */
+			decryptedtext_len = decrypt(encrypted, ciphertext_len, key, iv, decrypted);
+
+			/* Add a NULL terminator. We are expecting printable text */
+			decrypted[decryptedtext_len] = '\0';
 
 			/* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
-			nwrite = cwrite(tap_fd, buffer, nread);
-			printf("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
+			nwrite = cwrite(tap_fd, decrypted, nread);
+			do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
 		}
 	}
 
 	/* Clean up */
 	
-	//SSL_shutdown(ssl);
 	close(net_fd);
 	SSL_free(ssl);
 	SSL_CTX_free(ctx);

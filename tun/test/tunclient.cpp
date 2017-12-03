@@ -27,7 +27,7 @@
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
-#define PORT 55555
+#define PORT 1111
 
 /* some common lengths */
 #define IP_HDR_LEN 20

@@ -27,7 +27,7 @@
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
-#define PORT 55555
+#define PORT 1111
 
 /* some common lengths */
 #define IP_HDR_LEN 20
@@ -248,7 +248,7 @@ int main(int argc, char *argv[]) {
 	if ((ssl) == NULL) { exit (1); }
 	
 	SSL_set_fd(ssl, net_fd);
-	err = SSL_connect(ssl);
+	err = SSL_accept(ssl);
 	
 	if ((err)==-1) { 
 		ERR_print_errors_fp(stderr); 

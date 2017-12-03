@@ -27,7 +27,7 @@
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
-#define PORT 1111
+#define PORT 55555
 #define PORT_UDP 12345
 
 /* some common lengths */
@@ -332,6 +332,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	SSL_set_fd(ssl, sock_tcp);
+	printf("Initiating SSL/TLS connection\n");
 	err = SSL_connect (ssl);
 	
 	if ((err)==-1) { 

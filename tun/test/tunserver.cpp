@@ -27,7 +27,7 @@
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 4096   
-#define PORT 1111
+#define PORT 55555
 #define PORT_UDP 12345
 
 /* some common lengths */
@@ -339,7 +339,7 @@ int main(int argc, char *argv[]) {
 	
 	client_len = sizeof(sa_cli);
 	sock_tcp = accept(listen_sd, (struct sockaddr*) &sa_cli, &client_len);
-	if((net_fd) == -1) { 
+	if((sock_tcp) == -1) { 
 		perror("accept()"); 
 		exit(1); 
 	}
@@ -409,7 +409,7 @@ int main(int argc, char *argv[]) {
 	sa_serv_udp.sin_addr.s_addr = INADDR_ANY;
 	sa_serv_udp.sin_port        = htons(PORT_UDP);
 	
-	if(bind(net_fd, (struct sockaddr*) &sa_serv_udp, sizeof (sa_serv_udp)) == -1) { 
+	if(bind(net_fd, (struct sockaddr*) &sa_serv_udp, sizeof(sa_serv_udp)) == -1) { 
 		perror("bind() UDP"); 
 		exit(1); 
 	}

@@ -26,7 +26,7 @@
 #include <openssl/err.h>
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
-#define BUFSIZE 65536   
+#define BUFSIZE 4096   
 #define PORT 1111
 
 /* some common lengths */
@@ -322,12 +322,12 @@ int main(int argc, char *argv[]) {
 			printf("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 
 			err = SSL_write (ssl, buffer, (sizeof(buffer) - 1));
-			nwrite = err;
 			
 			if ((err)==-1) { 
 				ERR_print_errors_fp(stderr); 
 				exit(2); 
 			}
+			nwrite = err;
 
 			printf("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
 		}
@@ -337,6 +337,10 @@ int main(int argc, char *argv[]) {
 			* We need to read the length first, and then the packet */
 
 			err = SSL_read(ssl, buffer, sizeof(buffer) - 1);
+			if ((err)==-1) { 
+				ERR_print_errors_fp(stderr); 
+				exit(2); 
+			}
 			buffer[err] = '\0';
 			
 			if(err == 0) {

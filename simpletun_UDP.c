@@ -89,21 +89,6 @@ int tun_alloc(char *dev, int flags) {
  * cread: read routine that checks for errors and exits if an error is    *
  *        returned.                                                       *
  **************************************************************************/
-int cread2(int fd, char *buf, int n, struct sockaddr_in *si, socklen_t *slen){
-  
-  int nread;
-
-  if((nread=recvfrom(fd, buf, n, 0, (struct sockaddr*)si, slen))<0){
-    perror("Reading data");
-    exit(1);
-  }
-  return nread;
-}
-
-/**************************************************************************
- * cread: read routine that checks for errors and exits if an error is    *
- *        returned.                                                       *
- **************************************************************************/
 int cread(int fd, char *buf, int n){
   
   int nread;
@@ -283,10 +268,11 @@ int main(int argc, char *argv[]) {
     /* Client, try to connect to server */
 
     /* assign the destination address */
-    memset(&remote, 0, sizeof(remote));
-    remote.sin_family = AF_INET;
-    remote.sin_addr.s_addr = inet_addr(remote_ip);
-    remote.sin_port = htons(port);
+    remotelen = sizeof(remote);
+    memset(&remote, 0, remotelen);
+    remote.sin_family 		= AF_INET;
+    remote.sin_addr.s_addr 	= inet_addr(remote_ip);
+    remote.sin_port 		= htons(port);
 
     /* connection request */
     /*if (connect(sock_fd, (struct sockaddr*) &remote, sizeof(remote)) < 0){
@@ -362,7 +348,10 @@ int main(int argc, char *argv[]) {
       tap2net++;
       do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 
-      sendto(net_fd, buffer, nread, 0, (struct sockaddr*) &remote, remotelen);
+      if((nwrite = sendto(net_fd, buffer, nread, 0, (struct sockaddr*) &remote, remotelen))<0) {
+      	perror("Writing data");
+    	exit(1);
+  	}
       
       do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
     }
